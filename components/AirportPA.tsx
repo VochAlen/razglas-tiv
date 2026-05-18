@@ -31,6 +31,11 @@ interface LogEntryType {
   key: string;
 }
 
+interface QueueItem {
+  text: string;
+  voiceURI: string | null;
+}
+
 const STATUS_MAP: Record<string, StatusMeta> = {
   A07ARR: { label: "Arrived",   color: "#00e676", bg: "rgba(0,230,118,0.12)",  icon: "▼" },
   A09DEP: { label: "Departed",  color: "#90caf9", bg: "rgba(144,202,249,0.12)", icon: "▲" },
@@ -47,11 +52,17 @@ const STATUS_MAP: Record<string, StatusMeta> = {
 const HIDE_DEPARTED_AFTER_MINUTES = 15;
 const HIDE_ARRIVED_AFTER_MINUTES  = 15;
 
-// ─── Periodic Security Announcements ─────────────────────────────────────────
-const SECURITY_MESSAGES = [
+// ─── Periodic Security Announcements (EN + HR) ────────────────────────────────
+const SECURITY_MESSAGES_EN = [
   "Security announcement. Please do not leave your baggage unattended at any time. Unattended baggage will be removed and may be destroyed. Thank you for your cooperation.",
   "Security announcement. For the safety of all passengers, please report any suspicious items or behaviour to airport security staff immediately. Thank you.",
   "Security announcement. Please keep your baggage with you at all times. Any unattended items will be removed by security personnel. Thank you.",
+];
+
+const SECURITY_MESSAGES_HR = [
+  "Bezbjedonosno obavještenje. Molimo vas da nikada ne ostavljate svoj prtljag bez nadzora. Prtljag bez nadzora bit će uklonjen i može biti uništen. Hvala na saradnji.",
+  "Bezbjedonosno obavještenje. Radi sigurnosti svih putnika, molimo prijavite sumnjive predmete ili ponašanje odmah osoblju aerodroma. Hvala.",
+  "Bezbjedonosno obavještenje. Molimo čuvajte svoj prtljag uz sebe u svakom trenutku. Ostavljene predmete bez nadzora uklonit će zaštitarska služba. Hvala.",
 ];
 
 let securityMsgIndex = 0;
@@ -76,6 +87,40 @@ function spellOutFlightNumber(flightNum: string): string {
     '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
   };
   return String(flightNum).split('').map(ch => numWords[ch] ?? ch).join(' ');
+}
+
+// English: special handling for easyJet – remove airline code prefix
+function getSpokenFlightNumber(flight: Flight): string {
+  let flightNum = flight.BrojLeta;
+  const isEasyJet = flight.Kompanija === "EZY" || flight.KompanijaNaziv?.toLowerCase() === "easyjet";
+  if (isEasyJet) {
+    const match = flightNum.match(/[A-Z]+(\d+)/);
+    if (match) {
+      flightNum = match[1];
+    }
+  }
+  return spellOutFlightNumber(flightNum);
+}
+
+// Croatian: spell flight number digits in Croatian
+function spellOutFlightNumberHR(flightNum: string): string {
+  const numWordsHR: Record<string, string> = {
+    '0': 'nula', '1': 'jedan', '2': 'dva', '3': 'tri', '4': 'četiri',
+    '5': 'pet', '6': 'šest', '7': 'sedam', '8': 'osam', '9': 'devet',
+  };
+  return String(flightNum).split('').map(ch => numWordsHR[ch] ?? ch).join(' ');
+}
+
+function getSpokenFlightNumberHR(flight: Flight): string {
+  let flightNum = flight.BrojLeta;
+  const isEasyJet = flight.Kompanija === "EZY" || flight.KompanijaNaziv?.toLowerCase() === "easyjet";
+  if (isEasyJet) {
+    const match = flightNum.match(/[A-Z]+(\d+)/);
+    if (match) {
+      flightNum = match[1];
+    }
+  }
+  return spellOutFlightNumberHR(flightNum);
 }
 
 function getStatusMeta(code: string): StatusMeta {
@@ -156,7 +201,7 @@ function getAnnouncementKey(flight: Flight, type: string): string {
   return `${flight.BrojLeta}_${flight.IATA}_${type}`;
 }
 
-// ─── Natural number pronunciation ────────────────────────────────────────────
+// ─── Natural number pronunciation (English) ───────────────────────────────────
 function naturalNumberWord(num: number): string {
   const ones = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
   const teens = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
@@ -204,12 +249,12 @@ function computeDelayMinutes(flight: Flight): number | null {
   return diff > 0 ? diff : null;
 }
 
-// ─── TTS Announcement Builders ────────────────────────────────────────────────
-function buildArrivalAnnouncement(f: Flight): string {
-  return `Attention please. ${f.KompanijaNaziv} flight ${spellOutFlightNumber(f.BrojLeta)} from ${f.Grad} has arrived...`;
+// ─── ENGLISH ANNOUNCEMENT BUILDERS ────────────────────────────────────────────
+function buildArrivalAnnouncementEN(f: Flight): string {
+  return `Attention please. ${f.KompanijaNaziv} flight ${getSpokenFlightNumber(f)} from ${f.Grad} has arrived. Thank you.`;
 }
 
-function buildDepartureAnnouncement(f: Flight, type: string): string {
+function buildDepartureAnnouncementEN(f: Flight, type: string): string {
   const dest     = f.Grad;
   const airline  = f.KompanijaNaziv;
   const checkins = f.CheckIn ? `Check-in desks ${formatCheckInString(f.CheckIn)}.` : "";
@@ -217,49 +262,141 @@ function buildDepartureAnnouncement(f: Flight, type: string): string {
 
   switch (type) {
     case "checkin_120":
-      return `Attention please. ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest} is now open for check-in. ${checkins} Check-in will close 30 minutes before departure. Thank you.`;
+      return `Attention please. ${airline} flight ${getSpokenFlightNumber(f)} to ${dest} is now open for check-in. ${checkins} Check-in will close 30 minutes before departure. Thank you.`;
     case "checkin_90":
-      return `Attention please. This is a reminder that check-in is open for ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest}. ${checkins} Please ensure you have checked in before the desk closes. Thank you.`;
+      return `Attention please. This is a reminder that check-in is open for ${airline} flight ${getSpokenFlightNumber(f)} to ${dest}. ${checkins} Please ensure you have checked in before the desk closes. Thank you.`;
     case "checkin_60":
-      return `Attention please. Last call for check-in. ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest}. ${checkins} Check-in closes in 15 minutes. Please proceed immediately. Thank you.`;
+      return `Attention please. Last call for check-in. ${airline} flight ${getSpokenFlightNumber(f)} to ${dest}. ${checkins} Check-in closes in 15 minutes. Please proceed immediately. Thank you.`;
     case "boarding_30":
-      return `Attention please. ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest} is now ready for boarding at ${gate}. Please have your boarding pass and identification ready. Thank you.`;
+      return `Attention please. ${airline} flight ${getSpokenFlightNumber(f)} to ${dest} is now ready for boarding at ${gate}. Please have your boarding pass and identification ready. Thank you.`;
     case "boarding_20":
-      return `Attention please. Boarding is in progress for ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest} at ${gate}. All passengers should now be at the gate. Thank you.`;
+      return `Attention please. Boarding is in progress for ${airline} flight ${getSpokenFlightNumber(f)} to ${dest} at ${gate}. All passengers should now be at the gate. Thank you.`;
     case "final_15":
-      return `Final call. Final call for ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest}. This is the final call for all remaining passengers. Please proceed immediately to ${gate}. Thank you.`;
+      return `Final call. Final call for ${airline} flight ${getSpokenFlightNumber(f)} to ${dest}. This is the final call for all remaining passengers. Please proceed immediately to ${gate}. Thank you.`;
     case "final_10":
-      return `Last and final call. ${airline} flight ${spellOutFlightNumber(f.BrojLeta)} to ${dest}. The gate is about to close. Report immediately to ${gate} or you will be offloaded. Thank you.`;
+      return `Last and final call. ${airline} flight ${getSpokenFlightNumber(f)} to ${dest}. The gate is about to close. Report immediately to ${gate} or you will be offloaded. Thank you.`;
     default:
       return "";
   }
 }
 
-function buildDelayAnnouncement(f: Flight): string {
+function buildDelayAnnouncementEN(f: Flight): string {
   const minutes = computeDelayMinutes(f);
   const direction = f.TipLeta === "O" ? `to ${f.Grad}` : `from ${f.Grad}`;
   const airline = f.KompanijaNaziv;
-  const flightNumber = spellOutFlightNumber(f.BrojLeta);
+  const flightNumber = getSpokenFlightNumber(f);
 
   if (minutes !== null && minutes > 0) {
     const minutesWord = naturalNumberWord(minutes);
     return `Attention please. ${airline} flight ${flightNumber} ${direction} will be delayed approximately ${minutesWord} minutes. We apologize for the inconvenience. Thank you for your patience.`;
   }
   const newTime = f.Aktuelno || f.Predvidjeno || "a later time";
-  return `Attention please. We regret to inform you that ${airline} flight ${flightNumber} ${direction} has been delayed. The new expected time is ${newTime}. We apologize for the inconvenience. Thank you for your patience.`;
+  return `Attention please. We regret to inform you that ${airline} flight ${flightNumber} ${direction} has been delayed. The new expected time is ${formatTime(newTime)}. We apologize for the inconvenience. Thank you for your patience.`;
 }
 
-function buildCancelledAnnouncement(f: Flight): string {
+function buildCancelledAnnouncementEN(f: Flight): string {
   const dir = f.TipLeta === "O" ? `to ${f.Grad}` : `from ${f.Grad}`;
-  return `Attention please. We regret to announce that ${f.KompanijaNaziv} flight ${spellOutFlightNumber(f.BrojLeta)} ${dir} has been cancelled. Please contact your airline representative or proceed to the information desk for assistance. We apologize for the inconvenience.`;
+  return `Attention please. We regret to announce that ${f.KompanijaNaziv} flight ${getSpokenFlightNumber(f)} ${dir} has been cancelled. Please contact your airline representative or proceed to the information desk for assistance. We apologize for the inconvenience.`;
 }
 
-function buildDivertedAnnouncement(f: Flight): string {
+function buildDivertedAnnouncementEN(f: Flight): string {
   const dir = f.TipLeta === "O" ? `to ${f.Grad}` : `from ${f.Grad}`;
-  return `Attention please. ${f.KompanijaNaziv} flight ${spellOutFlightNumber(f.BrojLeta)} ${dir} has been diverted. Please proceed to the information desk or contact your airline for further details. We apologize for any inconvenience caused.`;
+  return `Attention please. ${f.KompanijaNaziv} flight ${getSpokenFlightNumber(f)} ${dir} has been diverted. Please proceed to the information desk or contact your airline for further details. We apologize for any inconvenience caused.`;
 }
 
-// ─── Flight Row Component ─────────────────────────────────────────────────────
+// ─── CROATIAN ANNOUNCEMENT BUILDERS ───────────────────────────────────────────
+// Numbers in Croatian (for minutes, gates, check-in desks)
+function brojRiječima(num: number): string {
+  const ones = ['', 'jedan', 'dva', 'tri', 'četiri', 'pet', 'šest', 'sedam', 'osam', 'devet'];
+  const teens = ['deset', 'jedanaest', 'dvanaest', 'trinaest', 'četrnaest', 'petnaest', 'šesnaest', 'sedamnaest', 'osamnaest', 'devetnaest'];
+  const tens = ['', '', 'dvadeset', 'trideset', 'četrdeset', 'pedeset', 'šezdeset', 'sedamdeset', 'osamdeset', 'devedeset'];
+  if (num === 0) return 'nula';
+  if (num < 10) return ones[num];
+  if (num < 20) return teens[num - 10];
+  const ten = Math.floor(num / 10);
+  const unit = num % 10;
+  if (unit === 0) return tens[ten];
+  return `${tens[ten]}${ones[unit] === 'jedan' ? ' i jedan' : ` ${ones[unit]}`}`;
+}
+
+function formatCheckInStringHR(checkIn: string): string {
+  if (!checkIn) return '';
+  const parts = checkIn.split(',').map(p => p.trim());
+  const converted = parts.map(part => {
+    if (part.includes('-')) {
+      const range = part.split('-').map(x => parseInt(x.trim(), 10));
+      if (range.length === 2 && !isNaN(range[0]) && !isNaN(range[1])) {
+        return `${brojRiječima(range[0])} do ${brojRiječima(range[1])}`;
+      }
+      return part;
+    }
+    const num = parseInt(part, 10);
+    if (!isNaN(num)) return brojRiječima(num);
+    return part;
+  });
+  return converted.join(', ');
+}
+
+function formatGateStringHR(gate: string): string {
+  if (!gate) return '';
+  return gate.replace(/\d+/g, (match) => brojRiječima(parseInt(match, 10)));
+}
+
+function buildArrivalAnnouncementHR(f: Flight): string {
+  return `Pažnja molim. Let kompanije ${f.KompanijaNaziv} broj ${getSpokenFlightNumberHR(f)} iz ${f.Grad} je sletio. Hvala.`;
+}
+
+function buildDepartureAnnouncementHR(f: Flight, type: string): string {
+  const dest     = f.Grad;
+  const airline  = f.KompanijaNaziv;
+  const checkins = f.CheckIn ? `Šalteri za registraciju ${formatCheckInStringHR(f.CheckIn)}.` : "";
+  const gate     = f.Gate ? `izlaz ${formatGateStringHR(f.Gate)}` : "određeni izlaz";
+
+  switch (type) {
+    case "checkin_120":
+      return `Pažnja molim. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest} je otvoren za registraciju putnika. ${checkins} Prijava se zatvara 30 minuta prije polijetanja. Hvala.`;
+    case "checkin_90":
+      return `Pažnja molim. Podsjetnik – registracija putnika je otvorena za let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest}. ${checkins} Molimo prijavite se na vrijeme. Hvala.`;
+    case "checkin_60":
+      return `Pažnja molim. Posljednji poziv za registraciju putnika. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest}. ${checkins} Registracija se zatvara za 15 minuta. Molimo odmah pristupite šalteru. Hvala.`;
+    case "boarding_30":
+      return `Pažnja molim. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest} spreman je za ukrcavanje na ${gate}. Molimo pripremite Vašu putnu ispravu i kartu za ukrcavanje. Hvala.`;
+    case "boarding_20":
+      return `Pažnja molim. Ukrcavanje je u toku za let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest} na ${gate}. Svi putnici trebaju biti na izlazu. Hvala.`;
+    case "final_15":
+      return `Posljednji poziv. Posljednji poziv za putnike leta kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest}. Molimo sve preostale putnike da odmah pristupe ${gate}. Hvala.`;
+    case "final_10":
+      return `Konačni poziv. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} za ${dest}. Izlaz se zatvara. Odmah pristupite ${gate} ili ćete biti odjavljeni. Hvala.`;
+    default:
+      return "";
+  }
+}
+
+function buildDelayAnnouncementHR(f: Flight): string {
+  const minutes = computeDelayMinutes(f);
+  const direction = f.TipLeta === "O" ? `za ${f.Grad}` : `iz ${f.Grad}`;
+  const airline = f.KompanijaNaziv;
+  const flightNumber = getSpokenFlightNumberHR(f);
+
+  if (minutes !== null && minutes > 0) {
+    const minutesWord = brojRiječima(minutes);
+    return `Pažnja molim. Let kompanije ${airline} broj ${flightNumber} ${direction} kasnit će otprilike ${minutesWord} minuta. Ispričavamo se na neugodnosti. Hvala na strpljenju.`;
+  }
+  const newTime = f.Aktuelno || f.Predvidjeno || "kasnijeg vremena";
+  return `Pažnja molim. Žalimo što moramo obavijestiti da let kompanije ${airline} broj ${flightNumber} ${direction} kasni. Novo očekivano vrijeme je ${formatTime(newTime)}. Izvinjavamo se na neugodnosti. Hvala na strpljenju.`;
+}
+
+function buildCancelledAnnouncementHR(f: Flight): string {
+  const dir = f.TipLeta === "O" ? `za ${f.Grad}` : `iz ${f.Grad}`;
+  return `Pažnja molim. Žalimo što moramo obavijestiti da je let kompanije ${f.KompanijaNaziv} broj ${getSpokenFlightNumberHR(f)} ${dir} otkazan. Molimo kontaktirajte predstavnika avio kompanije ili se obratite šalteru informacija. Izvinjavamo se na neugodnosti.`;
+}
+
+function buildDivertedAnnouncementHR(f: Flight): string {
+  const dir = f.TipLeta === "O" ? `za ${f.Grad}` : `iz ${f.Grad}`;
+  return `Pažnja molim. Let kompanije ${f.KompanijaNaziv} broj ${getSpokenFlightNumberHR(f)} ${dir} preusmjeren je na drugi aerodrom. Molimo obratite se informacijama ili vašoj avio kompaniji. Izvinjavamo se na neugodnosti.`;
+}
+
+// ─── Flight Row Component (unchanged) ─────────────────────────────────────────
 function FlightRow({ flight, announcedKeys }: { flight: Flight; announcedKeys: Record<string, boolean> }) {
   const meta  = getStatusMeta(flight.Status);
   const isDep = flight.TipLeta === "O";
@@ -365,27 +502,66 @@ export default function AirportPA() {
   const [activeTab, setActiveTab]       = useState("board");
   const [speaking, setSpeaking]         = useState(false);
   const [voicesReady, setVoicesReady]   = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>("");
+  const [croatianVoiceURI, setCroatianVoiceURI] = useState<string | null>(null);
 
   const announcedRef  = useRef<Record<string, boolean>>({});
   const [announcedKeys, setAnnouncedKeys] = useState<Record<string, boolean>>({});
 
-  const queueRef       = useRef<string[]>([]);
+  const queueRef       = useRef<QueueItem[]>([]);
   const playingRef     = useRef(false);
   const isMountedRef   = useRef(true);
   const processQueueRef = useRef<() => void>(() => {});
 
-  // Voice loading
+  // ── Voice loading and selector ──
   useEffect(() => {
     function loadVoices() {
-      const v = window.speechSynthesis?.getVoices();
-      if (v?.length > 0) setVoicesReady(true);
+      const voices = window.speechSynthesis?.getVoices() || [];
+      if (voices.length > 0) {
+        setAvailableVoices(voices);
+        setVoicesReady(true);
+        // Restore saved English voice from localStorage
+        const savedURI = localStorage.getItem("tts_voice_uri");
+        if (savedURI && voices.some(v => v.voiceURI === savedURI)) {
+          setSelectedVoiceURI(savedURI);
+        } else if (voices.length > 0) {
+          // Default: prefer female English voice
+          const defaultVoice = voices.find(v => /female|woman|zira|samantha|victoria|karen|moira|fiona/i.test(v.name)) ||
+                               voices.find(v => /en[-_]GB|en[-_]US/i.test(v.lang)) ||
+                               voices[0];
+          if (defaultVoice) setSelectedVoiceURI(defaultVoice.voiceURI);
+        }
+        // Detect Croatian/Serbian voice (lang starts with 'hr' or 'sr', or name contains "Matej", "Croatian", "Serbian")
+        const croatianVoice = voices.find(v => 
+          v.lang.startsWith('hr') || v.lang.startsWith('sr') ||
+          /matej|croatian|serbian/i.test(v.name)
+        );
+        if (croatianVoice) {
+          setCroatianVoiceURI(croatianVoice.voiceURI);
+          console.log("Croatian voice detected:", croatianVoice.name);
+        } else {
+          setCroatianVoiceURI(null);
+        }
+      }
     }
     loadVoices();
     window.speechSynthesis?.addEventListener("voiceschanged", loadVoices);
     return () => window.speechSynthesis?.removeEventListener("voiceschanged", loadVoices);
   }, []);
 
-  // TTS Queue
+  // Save selected English voice to localStorage
+  useEffect(() => {
+    if (selectedVoiceURI) {
+      localStorage.setItem("tts_voice_uri", selectedVoiceURI);
+    }
+  }, [selectedVoiceURI]);
+
+  const handleVoiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedVoiceURI(e.target.value);
+  };
+
+  // ── TTS Queue (sequential, no cancel) ──
   const processQueue = useCallback(() => {
     if (!isMountedRef.current) return;
     if (playingRef.current || queueRef.current.length === 0) return;
@@ -393,7 +569,8 @@ export default function AirportPA() {
     playingRef.current = true;
     setSpeaking(true);
 
-    const text = queueRef.current.shift()!;
+    const item = queueRef.current.shift()!;
+    const { text, voiceURI } = item;
 
     if (!("speechSynthesis" in window)) {
       playingRef.current = false;
@@ -406,19 +583,23 @@ export default function AirportPA() {
     gong.volume = 1.0;
 
     const speakText = () => {
-      window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang   = "en-GB";
+      u.lang   = voiceURI && availableVoices.find(v => v.voiceURI === voiceURI)?.lang || "en-GB";
       u.rate   = 0.88;
       u.pitch  = 1.0;
       u.volume = 1.0;
 
-      const voices = window.speechSynthesis.getVoices();
-      const preferred =
-        voices.find(v => /female|woman|zira|samantha|victoria|karen|moira|fiona/i.test(v.name)) ||
-        voices.find(v => /en[-_]GB|en[-_]US/i.test(v.lang)) ||
-        voices[0];
-      if (preferred) u.voice = preferred;
+      if (voiceURI) {
+        const selectedVoice = availableVoices.find(v => v.voiceURI === voiceURI);
+        if (selectedVoice) u.voice = selectedVoice;
+      } else {
+        // Fallback – should not happen
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v => /female|woman|zira|samantha|victoria|karen|moira|fiona/i.test(v.name)) ||
+                          voices.find(v => /en[-_]GB|en[-_]US/i.test(v.lang)) ||
+                          voices[0];
+        if (preferred) u.voice = preferred;
+      }
 
       u.onend  = () => { playingRef.current = false; if (isMountedRef.current) setSpeaking(false); setTimeout(() => processQueueRef.current(), 1200); };
       u.onerror = () => { playingRef.current = false; if (isMountedRef.current) setSpeaking(false); setTimeout(() => processQueueRef.current(), 1200); };
@@ -428,13 +609,14 @@ export default function AirportPA() {
     gong.onended = () => speakText();
     gong.onerror = () => speakText();
     gong.play().catch(() => speakText());
-  }, []);
+  }, [availableVoices]);
 
   useEffect(() => {
     processQueueRef.current = processQueue;
   }, [processQueue]);
 
-  const enqueue = useCallback((text: string, key: string) => {
+  // Core enqueue function that accepts voice URI
+  const enqueueWithVoice = useCallback((text: string, voiceURI: string | null, key: string) => {
     if (!isMountedRef.current) return;
     if (announcedRef.current[key]) return;
     announcedRef.current[key] = true;
@@ -444,23 +626,34 @@ export default function AirportPA() {
     const time = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
     setTimeout(() => { if (isMountedRef.current) setLog(prev => [{ time, text, key }, ...prev].slice(0, 100)); }, 0);
 
-    queueRef.current.push(text);
+    queueRef.current.push({ text, voiceURI });
     setTimeout(() => processQueue(), 0);
   }, [processQueue]);
 
-  const enqueueSecurityMessage = useCallback((text: string) => {
+  // Bilingual enqueue: English (using selected voice) then Croatian (if voice exists)
+  const enqueueBilingual = useCallback((textEN: string, textHR: string, keyBase: string) => {
+    // English
+    enqueueWithVoice(textEN, selectedVoiceURI, keyBase + "_en");
+    // Croatian (only if a Croatian voice is available)
+    if (croatianVoiceURI) {
+      enqueueWithVoice(textHR, croatianVoiceURI, keyBase + "_hr");
+    }
+  }, [enqueueWithVoice, selectedVoiceURI, croatianVoiceURI]);
+
+  // Security message enqueue (bilingual)
+  const enqueueSecurityMessage = useCallback((textEN: string, textHR: string) => {
     if (!isMountedRef.current) return;
     const time = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-    const key  = `security_${time}`;
-    setTimeout(() => {
-      if (isMountedRef.current)
-        setLog(prev => [{ time, text, key }, ...prev].slice(0, 100));
-    }, 0);
-    queueRef.current.push(text);
-    setTimeout(() => processQueue(), 0);
-  }, [processQueue]);
+    const keyEN = `security_en_${time}`;
+    const keyHR = `security_hr_${time}`;
 
-  // Periodic Security Interval
+    enqueueWithVoice(textEN, selectedVoiceURI, keyEN);
+    if (croatianVoiceURI) {
+      enqueueWithVoice(textHR, croatianVoiceURI, keyHR);
+    }
+  }, [enqueueWithVoice, selectedVoiceURI, croatianVoiceURI]);
+
+  // Periodic Security Interval (using bilingual)
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -468,9 +661,9 @@ export default function AirportPA() {
       const now    = nowMinutes();
       const hours  = getSecurityHours();
       if (now < hours.start || now >= hours.end) return;
-      const msg = SECURITY_MESSAGES[securityMsgIndex % SECURITY_MESSAGES.length];
+      const idx = securityMsgIndex % SECURITY_MESSAGES_EN.length;
       securityMsgIndex++;
-      enqueueSecurityMessage(msg);
+      enqueueSecurityMessage(SECURITY_MESSAGES_EN[idx], SECURITY_MESSAGES_HR[idx]);
     }
 
     function msToNextHalfHour(): number {
@@ -494,27 +687,44 @@ export default function AirportPA() {
     };
   }, [enqueueSecurityMessage]);
 
+  // Flight evaluation (now uses bilingual)
   const evaluateFlight = useCallback((f: Flight) => {
     const now    = nowMinutes();
     const status = f.Status;
 
     if (status === "A07ARR" && f.TipLeta === "I") {
       if (shouldPlayAnnouncement(f, "arrived")) {
-        enqueue(buildArrivalAnnouncement(f), getAnnouncementKey(f, "arrived"));
+        enqueueBilingual(
+          buildArrivalAnnouncementEN(f),
+          buildArrivalAnnouncementHR(f),
+          getAnnouncementKey(f, "arrived"),
+        );
       }
     }
 
     if (status === "A06CNL") {
-      enqueue(buildCancelledAnnouncement(f), getAnnouncementKey(f, "cancelled"));
+      enqueueBilingual(
+        buildCancelledAnnouncementEN(f),
+        buildCancelledAnnouncementHR(f),
+        getAnnouncementKey(f, "cancelled"),
+      );
     }
 
     if (status === "A08DIV") {
-      enqueue(buildDivertedAnnouncement(f), getAnnouncementKey(f, "diverted"));
+      enqueueBilingual(
+        buildDivertedAnnouncementEN(f),
+        buildDivertedAnnouncementHR(f),
+        getAnnouncementKey(f, "diverted"),
+      );
     }
 
     if (status === "A05DLY") {
       if (shouldPlayAnnouncement(f, "delayed")) {
-        enqueue(buildDelayAnnouncement(f), getAnnouncementKey(f, "delayed"));
+        enqueueBilingual(
+          buildDelayAnnouncementEN(f),
+          buildDelayAnnouncementHR(f),
+          getAnnouncementKey(f, "delayed"),
+        );
       }
     }
 
@@ -536,12 +746,17 @@ export default function AirportPA() {
         let t = w.trigger;
         if (t < 0) t += 1440;
         if (now >= t && now < t + w.window && shouldPlayAnnouncement(f, w.type)) {
-          enqueue(buildDepartureAnnouncement(f, w.type), getAnnouncementKey(f, w.type));
+          enqueueBilingual(
+            buildDepartureAnnouncementEN(f, w.type),
+            buildDepartureAnnouncementHR(f, w.type),
+            getAnnouncementKey(f, w.type),
+          );
         }
       }
     }
-  }, [enqueue]);
+  }, [enqueueBilingual]);
 
+  // Fetch flights (unchanged)
   const fetchFlights = useCallback(async () => {
     if (!isMountedRef.current) return;
     try {
@@ -593,6 +808,7 @@ export default function AirportPA() {
   const arrivals   = activeFlights.filter(f => f.TipLeta === "I");
   const departures = activeFlights.filter(f => f.TipLeta === "O");
 
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
       <style>{`
@@ -615,6 +831,21 @@ export default function AirportPA() {
           to { opacity: 1; transform: translateY(0); }
         }
         .row-fade { animation: fadeIn 0.3s ease forwards; }
+        select {
+          background: rgba(0,230,118,0.1);
+          border: 1px solid rgba(0,230,118,0.3);
+          color: #00e676;
+          border-radius: 6px;
+          padding: 5px 12px;
+          font-family: 'Roboto', monospace;
+          font-size: 11px;
+          cursor: pointer;
+          letter-spacing: 1px;
+        }
+        select option {
+          background: #060c14;
+          color: #cfd8dc;
+        }
       `}</style>
 
       <div style={{ minHeight: "100vh", background: "#060c14", position: "relative", overflow: "hidden" }}>
@@ -653,7 +884,7 @@ export default function AirportPA() {
                 </h1>
               </div>
               <div style={{ fontFamily: "'Roboto', monospace", fontSize: 11, color: "#546e7a", marginTop: 4, paddingLeft: 20 }}>
-                PASSENGER ANNOUNCEMENT SYSTEM · TIV
+                PASSENGER ANNOUNCEMENT SYSTEM · TIV · EN / HR
               </div>
             </div>
 
@@ -669,8 +900,21 @@ export default function AirportPA() {
                   </span>
                 </div>
               )}
+              
+              {/* Voice selector for English only */}
+              {voicesReady && availableVoices.length > 0 && (
+                <select value={selectedVoiceURI} onChange={handleVoiceChange} style={{ fontFamily: "'Roboto', monospace", fontSize: 11 }}>
+                  {availableVoices.map(voice => (
+                    <option key={voice.voiceURI} value={voice.voiceURI}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                </select>
+              )}
+
               <div style={{ fontFamily: "'Roboto', monospace", fontSize: 11, color: voicesReady ? "#00e676" : "#546e7a" }}>
                 TTS {voicesReady ? "READY" : "INIT..."}
+                {croatianVoiceURI && <span style={{ marginLeft: 8, color: "#ff7043" }}>🇭🇷 HR</span>}
               </div>
               <Clock />
               <div style={{ fontFamily: "'Roboto', monospace", fontSize: 11, color: "#546e7a" }}>
@@ -691,6 +935,7 @@ export default function AirportPA() {
             </div>
           </header>
 
+          {/* Stats, Tabs, Flight Board, Log – unchanged */}
           <div style={{ display: "flex", gap: 12, padding: "14px 0", flexWrap: "wrap" }}>
             {[
               { label: "Total",      value: activeFlights.length,          color: "#b0bec5" },
@@ -820,5 +1065,3 @@ export default function AirportPA() {
     </>
   );
 }
-
-//zadni
