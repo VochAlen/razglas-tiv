@@ -780,7 +780,7 @@ export default function AirportPA() {
   const fetchFlights = useCallback(async () => {
     if (!isMountedRef.current) return;
     try {
-      const res = await fetch("/api/flights/tv/", {
+      const res = await fetch("/api/flights/pg/", {
         cache: "no-store",
         signal: AbortSignal.timeout(10000),
       });
@@ -900,7 +900,7 @@ export default function AirportPA() {
                   fontFamily: "'Orbitron', monospace", fontSize: 20,
                   fontWeight: 800, letterSpacing: 3, color: "#fff", textTransform: "uppercase",
                 }}>
-                  Tivat Airport <span style={{ color: "#00e676" }}>PA</span>
+                  Podgorica Airport <span style={{ color: "#00e676" }}>PA</span>
                 </h1>
               </div>
               <div style={{ fontFamily: "'Roboto', monospace", fontSize: 11, color: "#546e7a", marginTop: 4, paddingLeft: 20 }}>
