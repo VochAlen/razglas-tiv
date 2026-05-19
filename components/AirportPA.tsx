@@ -127,7 +127,6 @@ function getSpokenFlightNumberHR(flight: Flight): string {
 const airlineNameHR: Record<string, string> = {
   "Jet2.com": "Džet Tu",
   "easyJet": "Izi Džet",
-  // Add more airlines as needed (case-insensitive matching)
 };
 
 function getCroatianAirlineName(original: string): string {
@@ -138,6 +137,54 @@ function getCroatianAirlineName(original: string): string {
     }
   }
   return original;
+}
+
+// ─── Croatian city name mapping (English → Croatian) ─────────────────────────
+const cityNameHR: Record<string, string> = {
+  "Belgrade": "Beograd",
+ 
+  "Vienna": "Beč",
+  "Rome": "Rim",
+  "Munich": "Minhen",
+  "Stockholm": "Štokholm",
+  "Manchester": "Mančester",
+  "Paris": "Pariz",
+  "Athens": "Atina",
+  "Budapest": "Budimpešta",
+  // Add more as needed:
+  "London STN": "London Stansted",   // stays same
+  "London LTN": "London Luton",
+  "London LHR": "London Hitrou",
+  "London LGW": "London Getvik",
+  "Paris Charles de Gaulle":"Pariz",
+   "Paris Charles de Gaull":"Pariz",
+   "Paris ORY":"Pariz Orli",
+  "Frankfurt": "Frankfurt",
+  "Berlin": "Berlin",
+  "Milan": "Milano",
+  "Warsaw": "Varšava",
+  "Prague": "Prag",
+  "Brussels": "Brisel",
+  "Copenhagen": "Kopenhagen",
+  "Oslo": "Oslo",
+  "Helsinki": "Helsinki",
+  "Dublin": "Dublin",
+  "Amsterdam": "Amsterdam",
+  "Zurich": "Cirih",
+  "Lisbon": "Lisabon",
+    "Wroclaw": "Vroclav",
+      "Katowitze": "Kaotovice",
+  "Madrid": "Madrid",
+  "Barcelona": "Barcelona",
+  "Istanbul": "Istanbul",
+  "Moscow": "Moskva",
+  "Dubai": "Dubai",
+  "Doha": "Doha",
+};
+
+function getCroatianCityName(original: string): string {
+  if (!original) return '';
+  return cityNameHR[original] || original;
 }
 
 function getStatusMeta(code: string): StatusMeta {
@@ -361,11 +408,12 @@ function formatGateStringHR(gate: string): string {
 
 function buildArrivalAnnouncementHR(f: Flight): string {
   const airline = getCroatianAirlineName(f.KompanijaNaziv);
-  return `Pažnja molim. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} iz ${f.Grad} je sletio. Hvala.`;
+  const city = getCroatianCityName(f.Grad);
+  return `Pažnja molim. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} iz ${city} je sletio. Hvala.`;
 }
 
 function buildDepartureAnnouncementHR(f: Flight, type: string): string {
-  const dest     = f.Grad;
+  const dest     = getCroatianCityName(f.Grad);
   const airline  = getCroatianAirlineName(f.KompanijaNaziv);
   const checkins = f.CheckIn ? `Šalteri za registraciju ${formatCheckInStringHR(f.CheckIn)}.` : "";
   const gate     = f.Gate ? `izlaz ${formatGateStringHR(f.Gate)}` : "određeni izlaz";
@@ -392,7 +440,7 @@ function buildDepartureAnnouncementHR(f: Flight, type: string): string {
 
 function buildDelayAnnouncementHR(f: Flight): string {
   const minutes = computeDelayMinutes(f);
-  const direction = f.TipLeta === "O" ? `za ${f.Grad}` : `iz ${f.Grad}`;
+  const direction = f.TipLeta === "O" ? `za ${getCroatianCityName(f.Grad)}` : `iz ${getCroatianCityName(f.Grad)}`;
   const airline = getCroatianAirlineName(f.KompanijaNaziv);
   const flightNumber = getSpokenFlightNumberHR(f);
 
@@ -405,13 +453,13 @@ function buildDelayAnnouncementHR(f: Flight): string {
 }
 
 function buildCancelledAnnouncementHR(f: Flight): string {
-  const dir = f.TipLeta === "O" ? `za ${f.Grad}` : `iz ${f.Grad}`;
+  const dir = f.TipLeta === "O" ? `za ${getCroatianCityName(f.Grad)}` : `iz ${getCroatianCityName(f.Grad)}`;
   const airline = getCroatianAirlineName(f.KompanijaNaziv);
   return `Pažnja molim. Žalimo što moramo obavijestiti da je let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} ${dir} otkazan. Molimo kontaktirajte predstavnika avio kompanije ili se obratite šalteru informacija. Izvinjavamo se na neugodnosti.`;
 }
 
 function buildDivertedAnnouncementHR(f: Flight): string {
-  const dir = f.TipLeta === "O" ? `za ${f.Grad}` : `iz ${f.Grad}`;
+  const dir = f.TipLeta === "O" ? `za ${getCroatianCityName(f.Grad)}` : `iz ${getCroatianCityName(f.Grad)}`;
   const airline = getCroatianAirlineName(f.KompanijaNaziv);
   return `Pažnja molim. Let kompanije ${airline} broj ${getSpokenFlightNumberHR(f)} ${dir} preusmjeren je na drugi aerodrom. Molimo obratite se informacijama ili vašoj avio kompaniji. Izvinjavamo se na neugodnosti.`;
 }
@@ -828,7 +876,7 @@ export default function AirportPA() {
   const arrivals   = activeFlights.filter(f => f.TipLeta === "I");
   const departures = activeFlights.filter(f => f.TipLeta === "O");
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
+  // ─── Render (unchanged) ──────────────────────────────────────────────────────
   return (
     <>
       <style>{`
@@ -955,7 +1003,6 @@ export default function AirportPA() {
             </div>
           </header>
 
-          {/* Stats, Tabs, Flight Board, Log – unchanged */}
           <div style={{ display: "flex", gap: 12, padding: "14px 0", flexWrap: "wrap" }}>
             {[
               { label: "Total",      value: activeFlights.length,          color: "#b0bec5" },
