@@ -127,6 +127,13 @@ function getSpokenFlightNumberHR(flight: Flight): string {
 const airlineNameHR: Record<string, string> = {
   "Jet2.com": "Džet Tu",
   "easyJet": "Izi Džet",
+  "Norwegian Air Sweden AOC AB": "Norvidžian",
+  "Arkia Israeli Air-Lines":"Arkia",
+  "El-Al Israel Airlines Ltd Sundor":"El Al Sandor",
+  "EasyJet Europe":"Izi Džet",
+  "British Airways":"Britiš Ervejz",
+  "Air Serbia":"Er Srbija",
+    "Luxair":"Luks Er",
 };
 
 function getCroatianAirlineName(original: string): string {
